@@ -1,58 +1,53 @@
-name: OpenFaaS CI/CD
+name: OpenFaaS Auto-Deploy
 
 on:
-  workflow_dispatch:
-    inputs:
-      action:
-        description: 'Action'
-        required: true
-        default: 'apply'
-        type: choice
-        options:
-        - apply
-        - destroy
+  push:
+    branches:
+      - main
+      - master # Included just in case your default branch is named master
 
 env:
   IMAGE_TAG: ${{ secrets.DOCKER_USERNAME }}/hello-node:${{ github.sha }}
 
 jobs:
   build-and-push:
-    if: github.event.inputs.action == 'apply'
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux, x64]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - uses: docker/login-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - run: |
+      - name: Build and Push
+        run: |
+          # Replace the dummy image name with your tagged image
           sed -i "s|image:.*|image: ${{ env.IMAGE_TAG }}|g" stack.yaml
           faas-cli build -f stack.yaml
           faas-cli push -f stack.yaml
 
   terraform-deploy:
     needs: [build-and-push]
-    if: always() 
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux, x64]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - working-directory: ./terraform
+      - name: Terraform Init
+        working-directory: ./terraform
         run: terraform init
 
-      - working-directory: ./terraform
+      - name: Terraform Apply
+        working-directory: ./terraform
         env:
           TF_VAR_openfaas_uri: ${{ secrets.OPENFAAS_URL }}
           TF_VAR_openfaas_user: ${{ secrets.OPENFAAS_USER }}
           TF_VAR_openfaas_password: ${{ secrets.OPENFAAS_PASSWORD }}
-          TF_VAR_image_tag: ${{ github.event.inputs.action == 'apply' && env.IMAGE_TAG || 'latest' }}
-        run: |
-          if [ "${{ github.event.inputs.action }}" = "destroy" ]; then
-            terraform destroy -auto-approve
-          else
-            terraform apply -auto-approve
-          fi
+          TF_VAR_image_tag: ${{ env.IMAGE_TAG }}
+        run: terraform apply -auto-approve
