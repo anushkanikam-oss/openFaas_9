@@ -1,0 +1,58 @@
+name: OpenFaaS CI/CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+        - apply
+        - destroy
+
+env:
+  IMAGE_TAG: ${{ secrets.DOCKER_USERNAME }}/hello-node:${{ github.sha }}
+
+jobs:
+  build-and-push:
+    if: github.event.inputs.action == 'apply'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - run: |
+          sed -i "s|image:.*|image: ${{ env.IMAGE_TAG }}|g" stack.yaml
+          faas-cli build -f stack.yaml
+          faas-cli push -f stack.yaml
+
+  terraform-deploy:
+    needs: [build-and-push]
+    if: always() 
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - working-directory: ./terraform
+        run: terraform init
+
+      - working-directory: ./terraform
+        env:
+          TF_VAR_openfaas_uri: ${{ secrets.OPENFAAS_URL }}
+          TF_VAR_openfaas_user: ${{ secrets.OPENFAAS_USER }}
+          TF_VAR_openfaas_password: ${{ secrets.OPENFAAS_PASSWORD }}
+          TF_VAR_image_tag: ${{ github.event.inputs.action == 'apply' && env.IMAGE_TAG || 'latest' }}
+        run: |
+          if [ "${{ github.event.inputs.action }}" = "destroy" ]; then
+            terraform destroy -auto-approve
+          else
+            terraform apply -auto-approve
+          fi
