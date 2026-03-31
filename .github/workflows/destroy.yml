@@ -17,7 +17,7 @@ jobs:
       - working-directory: ./terraform
         env:
           TF_VAR_openfaas_uri: ${{ secrets.OPENFAAS_URL }}
-          TF_VAR_openfaas_user: ${{ secrets.OPENFAAS_USER }}
+          TF_VAR_openfaas_user: admin
           TF_VAR_openfaas_password: ${{ secrets.OPENFAAS_PASSWORD }}
           TF_VAR_image_tag: "latest"
         run: terraform destroy -auto-approve
